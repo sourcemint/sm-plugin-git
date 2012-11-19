@@ -1,0 +1,8 @@
+{
+	"name": "sm-plugin-git",
+	"version": "0.1.0",
+	"pm": "npm",
+	"main": "./plugin.js",
+	"dependencies": {
+    }
+}
