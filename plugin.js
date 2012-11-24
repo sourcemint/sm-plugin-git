@@ -31,6 +31,12 @@ exports.for = function(API, plugin) {
 	                	if (!options.pull) return;
 		                return git.pull("origin", status.branch, {
 		                    verbose: options.verbose
+		                }).fail(function(err) {
+		                	if (/fatal: Couldn't find remote ref master/.test(err.message)) {
+		                		// This happens when remote git repo has not commits.
+		                		return;
+		                	}
+		                	throw err;
 		                });
 	                });
 	            } else if (status.noremote !== true) {
