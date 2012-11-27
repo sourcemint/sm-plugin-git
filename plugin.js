@@ -109,6 +109,13 @@ exports.for = function(API, plugin) {
 							} catch(err) {
 								console.error("Error parsing JSON from: " + PATH.join(path, "package.json"));
 							}
+							// NOTE: `summary.version` holds the tagged version if set and falls back to
+							//		 version declared in package descriptor if not set. To reference
+							//		 exact package always use `summary.rev` as it always more narrow than
+							//		 `summary.version`.
+							if (!summary.version && summary.descriptor.version) {
+								summary.version = summary.descriptor.version;
+							}
 							return deferred.resolve(summary);
 						});
 					});
