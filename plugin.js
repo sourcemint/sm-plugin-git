@@ -227,6 +227,19 @@ exports.for = function(API, plugin) {
 		});
 	}
 
+	plugin.hasRevInHistory = function(rev, options) {
+		var git = GIT.interfaceForPath(API, plugin.node.path, {
+	        verbose: options.debug
+	    });
+		return git.callGit([
+	        "rev-parse",
+	        rev
+	    ]).then(function(result) {
+	    	return true;
+	    }, function() {
+	    	return false;
+	    });
+	}
 
 	plugin.latest = function(options) {
 		var self = this;
