@@ -87,6 +87,7 @@ exports.for = function(API, plugin) {
 		            });
 		        }).then(function() {
 					var summary = {
+						type: "git",
 						raw: status,
 						rev: status.rev,
 						version: status.tagged,
@@ -154,7 +155,7 @@ exports.for = function(API, plugin) {
 	                    if (locator.rev.substring(0, locator.selector.length) === locator.selector) {
 	                    	locator.selector = false;
 	                    }
-						return git.isTagged(options).then(function(isTagged) {
+						return git.isTagged(locator.rev, options).then(function(isTagged) {
                             if (isTagged) {
                                 locator.version = isTagged;
                             }
@@ -430,8 +431,95 @@ exports.for = function(API, plugin) {
 			throw new Error("Method '" + req.method + "' not implemented!");
 
 		}, options).then(function(response) {
-
-			return JSON.parse(response.body.toString());
+			var info = JSON.parse(response.body.toString());
+			if (info) {
+				info.cachePath = plugin.node.getCachePath("external", uri);
+			}
+			return info;
 		});
 	}
+
+    plugin.extract = function(fromPath, toPath, locator, options) {
+
+        if (!PATH.existsSync(toPath)) {
+            API.FS_RECURSIVE.mkdirSyncRecursive(toPath);
+        }
+
+        var copyFrom = fromPath;
+        var copyTo = toPath;
+        if (options.vcsOnly) {
+            copyFrom = PATH.join(fromPath, ".git");
+            copyTo = PATH.join(toPath, ".git");
+        }
+
+        options.logger.debug("Copying '" + copyFrom + "' to '" + copyTo + "'");
+
+        // TODO: Use git export if `options.vcsOnly !== true` instead of copying everything.
+        return API.FS_RECURSIVE.osCopyDirRecursive(copyFrom, copyTo).then(function() {
+
+            if (options.vcsOnly) {
+            	// TODO: Optimize.
+                if (PATH.existsSync(PATH.join(copyFrom, "../.gitignore"))) {
+                    FS.writeFileSync(PATH.join(copyTo, "../.gitignore"), FS.readFileSync(PATH.join(copyFrom, "../.gitignore")));
+                }
+                if (PATH.existsSync(PATH.join(copyFrom, "../.gitmodules"))) {
+                    FS.writeFileSync(PATH.join(copyTo, "../.gitmodules"), FS.readFileSync(PATH.join(copyFrom, "../.gitmodules")));
+                }
+            }
+
+            var git = GIT.interfaceForPath(API, fromPath, {
+                verbose: options.debug
+            });
+
+            // TODO: Call this on `toPath`?
+            return git.remotes().then(function(remotes) {
+                var remoteBranches = [];
+                var branches = {};
+                if (remotes && remotes["origin"]) {
+                    if (remotes["origin"].remoteBranches) {
+                        remoteBranches = remotes["origin"].remoteBranches;
+                    }
+                    if (remotes["origin"].branches) {
+                        branches = remotes["origin"].branches;                        
+                    }
+                }
+
+                var git = GIT.interfaceForPath(API, toPath, {
+                    verbose: options.debug
+                });
+
+                // TODO: Init/update .gitmodules if applicable.
+
+                var done = API.Q.ref();
+
+				if (locator.selector) {
+					// We have a branch.
+                    if (!branches[locator.selector]) {
+                    	// Setup a tracking branch.
+                        done = Q.when(done, function() {
+                        	options.logger.debug("Setting up remote tracking branch '" + locator.selector + "' for '" + locator + "'");
+                            return git.branch("origin/" + locator.selector, {
+                                track: locator.selector
+                            });
+                        });
+                    }
+				}
+
+                return API.Q.when(done, function() {
+                	options.logger.debug("Checking out '" + locator.rev + "' at '" + toPath + "'");
+                    return git.checkout(locator.rev, {
+                        symbolic: options.vcsOnly || false
+                    }).then(function() {
+                        if (locator.selector && options.now) {
+                            // TODO: Don't need this as we are already fetched by now?
+                            return git.pull("origin");
+                        }
+                    }).then(function() {
+                        return 200;
+                    });
+                });
+            });
+        });
+
+    };	
 }
