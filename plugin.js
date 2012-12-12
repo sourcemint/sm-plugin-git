@@ -130,6 +130,8 @@ exports.for = function(API, plugin) {
     plugin.resolveLocator = function(locator, options) {
         var self = this;
 
+        if (!locator.vcs) locator.vcs = "git";
+
         if (typeof locator.getLocation === "undefined") {
 	        // TODO: Parse `locator.descriptor.pointer` and set `locator.getLocation` function.    	
         }
@@ -249,6 +251,9 @@ exports.for = function(API, plugin) {
 
 		if (!uri) return API.Q.resolve(false);
 
+		var opts = API.UTIL.copy(options);
+		opts.now = opts.now || options.forceClone || false;
+
 		return plugin.getLatestInfoCache(uri, function(req, callback) {
 			if (req.method === "HEAD") {
 				return callback(null, {
@@ -275,20 +280,25 @@ exports.for = function(API, plugin) {
 									||
 									// working dir has repo
 									workingHasRepo
+									||
+									// we are asked to clone
+									options.forceClone
 								)
 							)) return deferred.resolve(false);
 
-			                if (options.debug) console.log("Downloading '" + uri + "' to '" + cachePath + "'.");
+							options.logger.debug("Downloading '" + uri + "' to '" + cachePath + "'.");
 
 			                var git = GIT.interfaceForPath(API, cachePath, {
 			                    verbose: options.debug
 			                });
 
+			                var status = false;
+
 			                return git.isRepository().then(function(isRepository) {
 			                    if (isRepository) {
 
 			                        function fetch() {
-			                            if (options.debug) console.log("Fetch from '" + uri + "'.");
+										options.logger.debug("git fetch from '" + uri + "'.");
 
 			                            // TODO: Based on `options.now` don't fetch.
 			                            // TODO: Based on `options.time` track if called multiple times and only proceed once.
@@ -376,7 +386,7 @@ exports.for = function(API, plugin) {
 			                            FS.rmdirSync(cachePath);
 			                        }
 
-			                        if (options.debug) console.log("Clone '" + uri + "'.");
+			                        options.logger.debug("Clone `" + uri + "` to `" + cachePath + "` via git.");
 
 			                        return git.clone(uri, {
 			                            // Always show clone progress as this can take a while.
@@ -430,7 +440,7 @@ exports.for = function(API, plugin) {
 			}
 			throw new Error("Method '" + req.method + "' not implemented!");
 
-		}, options).then(function(response) {
+		}, opts).then(function(response) {
 			var info = JSON.parse(response.body.toString());
 			if (info) {
 				info.cachePath = plugin.node.getCachePath("external", uri);
@@ -506,17 +516,23 @@ exports.for = function(API, plugin) {
 				}
 
                 return API.Q.when(done, function() {
-                	options.logger.debug("Checking out '" + locator.rev + "' at '" + toPath + "'");
-                    return git.checkout(locator.rev, {
-                        symbolic: options.vcsOnly || false
-                    }).then(function() {
-                        if (locator.selector && options.now) {
-                            // TODO: Don't need this as we are already fetched by now?
-                            return git.pull("origin");
-                        }
-                    }).then(function() {
+                	if (locator.rev && !locator.selector) {
+	                	options.logger.debug("Checking out '" + locator.rev + "' at '" + toPath + "'");
+	                    return git.checkout(locator.rev, {
+	                        symbolic: options.vcsOnly || false
+	                    }).then(function() {
+	                    	/*
+	                        if (locator.selector && options.now) {
+	                            // TODO: Don't need this as we are already fetched by now?
+	                            return git.pull("origin");
+	                        }
+	                        */
+	                    }).then(function() {
+	                        return 200;
+	                    });
+                	} else {
                         return 200;
-                    });
+                    }
                 });
             });
         });
