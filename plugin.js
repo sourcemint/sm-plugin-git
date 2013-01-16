@@ -6,13 +6,15 @@ const EVENTS = require("events");
 const CRYPTO = require("crypto");
 
 
-exports.for = function(API, plugin) {
+// TODO: Keep this global so all instances of this module skip re-fetching.
+//		 This happens when `sm` spawns `sm` on the command-line.
+var fetched = {};
 
+exports.for = function(API, plugin) {
 
 	// TODO: As we initialize here we do a fetch/pull and then call `callback`.
 	//		Call fetch+pull on cache if exists
 	//		Call fetch on package if exists (ideally fetch from cache instead of online).
-
 
 	function fetchIfApplicable(path, options) {
 	    var git = GIT.interfaceForPath(API, path, {
@@ -23,7 +25,10 @@ exports.for = function(API, plugin) {
 	        if (status.type !== "git") return false;
 	        if (!options.now) return status;
 
-	        return API.Q.call(function() {
+	        if (fetched[path]) {
+	        	return fetched[path];
+	        }
+	        return fetched[path] = API.Q.call(function() {
 	            if (status.tracking) {
 	                return git.fetch("origin", {
 	                    verbose: options.verbose
