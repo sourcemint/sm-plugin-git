@@ -509,7 +509,7 @@ exports.for = function(API, plugin) {
 
 				if (locator.selector) {
 					// We have a branch.
-                    if (!branches[locator.selector]) {
+                    if (!locator.version && !branches[locator.selector]) {
                     	// Setup a tracking branch.
                         done = API.Q.when(done, function() {
                         	options.logger.debug("Setting up remote tracking branch '" + locator.selector + "' for '" + locator + "'");
