@@ -541,6 +541,85 @@ exports.for = function(API, plugin) {
                 });
             });
         });
+    };
 
-    };	
+    plugin.bump = function(options) {
+    	var self = this;
+
+        var version = self.node.descriptors.package.version;
+        if (!version) {
+            API.TERM.stderr.writenl("\0red(\0bold(ERROR: No 'version' property found in package descriptor '" + self.node.path + "'!\0)\0)");
+            throw true;
+        }
+
+        var message = false;
+        var newVersion = false;
+
+        if (options.incrementPatch) {
+            newVersion = version.split(".");
+            if (parseInt(newVersion[2]) != newVersion[2]) {
+                throw new Error("Cannot bump non-numeric version segments yet!");
+            }
+            newVersion[2] = parseInt(newVersion[2]) + 1;
+            newVersion = newVersion.join(".");
+            message = "\0green(Bumped patch segment of '" + version + "' to '" + newVersion + "' in package descriptor '" + self.node.path + "'.\0)";
+        }
+        else if (options.incrementMinor) {
+            newVersion = version.split(".");
+            if (parseInt(newVersion[1]) != newVersion[1]) {
+                throw new Error("Cannot bump non-numeric version segments yet!");
+            }
+            newVersion[1] = parseInt(newVersion[1]) + 1;
+            newVersion[2] = 0;
+            newVersion = newVersion.join(".");
+            message = "\0green(Bumped minor segment of '" + version + "' to '" + newVersion + "' in package descriptor '" + self.node.path + "'.\0)";
+        }
+        else if(options.incrementMajor) {
+            newVersion = version.split(".");
+            if (parseInt(newVersion[0]) != newVersion[0]) {
+                throw new Error("Cannot bump non-numeric version segments yet!");
+            }
+            newVersion[0] = parseInt(newVersion[0]) + 1;
+            newVersion[1] = 0;
+            newVersion[2] = 0;
+            newVersion = newVersion.join(".");
+            message = "\0green(Bumped major segment of '" + version + "' to '" + newVersion + "' in package descriptor '" + self.node.path + "'.\0)";
+        }
+
+		API.TERM.stdout.writenl(message);
+
+        var descriptor = JSON.parse(FS.readFileSync(PATH.join(self.node.path, "package.json")));
+        descriptor.version = newVersion;
+        FS.writeFileSync(PATH.join(self.node.path, "package.json"), JSON.stringify(descriptor, null, 4));
+
+        var git = GIT.interfaceForPath(API, self.node.path, {
+            verbose: options.debug
+        });
+	    return git.status().then(function(status) {	    	
+	        return git.commit("bump package version to v" + newVersion, {
+	            add: true
+	        }).then(function() {
+		        var tag = "v" + newVersion;
+	            return git.tag(tag).then(function() {
+	                API.TERM.stdout.writenl("\0green(Committed version change and tagged package '" + self.node.path + "' (on branch '" + status.branch + "') with tag '" + tag + "'.\0)");
+	            });
+	        });
+	    });
+    }
+
+    plugin.publish = function(options) {
+    	var self = this;
+        var git = GIT.interfaceForPath(API, self.node.path, {
+            verbose: options.debug
+        });
+	    return git.status().then(function(status) {
+            return git.push({
+                tags: true,
+                branch: status.branch,
+                remote: "origin"
+            }).then(function() {
+                API.TERM.stdout.writenl("\0green(Pushed git branch '" + status.branch + "' of package '" + self.node.path + "' to remote '" + "origin" + "'.\0)");
+            });
+	    });
+    }
 }
