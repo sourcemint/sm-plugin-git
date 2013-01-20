@@ -558,11 +558,19 @@ exports.for = function(API, plugin) {
         if (options.incrementPatch) {
             newVersion = version.split(".");
             if (parseInt(newVersion[2]) != newVersion[2]) {
-                throw new Error("Cannot bump non-numeric version segments yet!");
+            	var m = version.match(/^(\d*\.\d*\.\d*-(\D*)-)(\d*)$/);
+            	if (m) {
+		            newVersion = m[1] + ( parseInt(m[3]) + 1 );
+		            message = "\0green(Bumped " + m[2] + "-release segment of '" + version + "' to '" + newVersion + "' in package descriptor '" + self.node.path + "'.\0)";
+            	} else {
+	                throw new Error("Cannot bump non-numeric version segments (" + version + ") yet!");
+            	}
             }
-            newVersion[2] = parseInt(newVersion[2]) + 1;
-            newVersion = newVersion.join(".");
-            message = "\0green(Bumped patch segment of '" + version + "' to '" + newVersion + "' in package descriptor '" + self.node.path + "'.\0)";
+            if (!message) {
+	            newVersion[2] = parseInt(newVersion[2]) + 1;
+	            newVersion = newVersion.join(".");
+	            message = "\0green(Bumped patch segment of '" + version + "' to '" + newVersion + "' in package descriptor '" + self.node.path + "'.\0)";
+	        }
         }
         else if (options.incrementMinor) {
             newVersion = version.split(".");
