@@ -555,10 +555,11 @@ exports.for = function(API, plugin) {
         var message = false;
         var newVersion = false;
 
+    	var m = version.match(/^(\d*\.\d*\.\d*-(\D*)-)(\d*)$/);
+
         if (options.incrementPatch) {
             newVersion = version.split(".");
             if (parseInt(newVersion[2]) != newVersion[2]) {
-            	var m = version.match(/^(\d*\.\d*\.\d*-(\D*)-)(\d*)$/);
             	if (m) {
 		            newVersion = m[1] + ( parseInt(m[3]) + 1 );
 		            message = "\0green(Bumped " + m[2] + "-release segment of '" + version + "' to '" + newVersion + "' in package descriptor '" + self.node.path + "'.\0)";
@@ -573,6 +574,9 @@ exports.for = function(API, plugin) {
 	        }
         }
         else if (options.incrementMinor) {
+        	if (m) {
+                throw new Error("Cannot bump minor version if pre-release tag is present!");
+        	}
             newVersion = version.split(".");
             if (parseInt(newVersion[1]) != newVersion[1]) {
                 throw new Error("Cannot bump non-numeric version segments yet!");
@@ -583,6 +587,9 @@ exports.for = function(API, plugin) {
             message = "\0green(Bumped minor segment of '" + version + "' to '" + newVersion + "' in package descriptor '" + self.node.path + "'.\0)";
         }
         else if(options.incrementMajor) {
+        	if (m) {
+                throw new Error("Cannot bump major version if pre-release tag is present!");
+        	}
             newVersion = version.split(".");
             if (parseInt(newVersion[0]) != newVersion[0]) {
                 throw new Error("Cannot bump non-numeric version segments yet!");
