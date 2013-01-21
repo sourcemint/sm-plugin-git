@@ -555,7 +555,7 @@ exports.for = function(API, plugin) {
         var message = false;
         var newVersion = false;
 
-    	var m = version.match(/^(\d*\.\d*\.\d*-(\D*)-)(\d*)$/);
+    	var m = version.match(/^(\d*\.\d*\.\d*-([^\.]*)\.)(\d*)$/);
 
         if (options.incrementPatch) {
             newVersion = version.split(".");
