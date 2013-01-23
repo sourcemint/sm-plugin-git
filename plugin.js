@@ -637,4 +637,36 @@ exports.for = function(API, plugin) {
             });
 	    });
     }
+
+    plugin.edit = function(locator, options) {
+    	var self = this;
+
+        var done = API.Q.ref();
+
+/*
+        if (self.package.inParent) {
+            done = Q.when(done, function() {
+                var opts = UTIL.copy(options);
+                opts.skipParentLookup = true;
+                return self.refresh(opts).then(function() {
+                    return self.updateTo(self.package.newLocator, options);
+                });
+            });
+        } else
+*/
+/*
+        if (!self.node.summary.declaredLocator.getLocation("git-read")) {
+            API.TERM.stdout.writenl("\0red(Cannot edit package '" + self.node.summary.relpath + "'. Could not determine git source repository of package.'.\0)");
+            throw true;
+        }	        
+*/
+        return API.Q.when(done, function() {
+            var opts = API.UTIL.copy(options);
+            opts.info = true;
+            self.node.print(opts);
+            return self.node.edit(locator, options).then(function() {
+            	self.node.print(opts);
+            });
+        });
+    }
 }
