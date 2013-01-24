@@ -546,7 +546,7 @@ exports.for = function(API, plugin) {
     plugin.bump = function(options) {
     	var self = this;
 
-        var version = self.node.descriptors.package.version;
+        var version = self.node.descriptor.package.version;
         if (!version) {
             API.TERM.stderr.writenl("\0red(\0bold(ERROR: No 'version' property found in package descriptor '" + self.node.path + "'!\0)\0)");
             throw true;
