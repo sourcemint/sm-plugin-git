@@ -197,8 +197,8 @@ exports.for = function(API, plugin) {
 		return getStatus(plugin.node.path, options);
 	}
 
-	plugin.descriptorForSelector = function(locator, selector, options) {
-		function loadDescriptorAt(path, selector) {
+	plugin.descriptorForSelector = function(locator, selector, options, callback) {
+		function loadDescriptorAt(path, selector, callback) {
 			selector = selector || "master";
 			var git = GIT.interfaceForPath(API, path, {
 		        verbose: options.debug
@@ -227,11 +227,18 @@ exports.for = function(API, plugin) {
 			    		throw new Error("Error parsing 'package.json' from '" + path + "' at '" + selector + "'");
 			    	}
 			    });
-			});
+			}).then(function(info) {
+				return callback(null, info);
+			}, callback);
 		}
-		return loadDescriptorAt(plugin.node.getCachePath("external", locator.getLocation("git-write") || locator.getLocation("git-read")), selector).then(function(descriptor) {
-			if (descriptor) return descriptor;
-	        return loadDescriptorAt(plugin.node.path, selector);
+		return loadDescriptorAt(
+			plugin.node.getCachePath("external", locator.getLocation("git-write") || locator.getLocation("git-read")),
+			selector,
+			function(err, descriptor)
+		{
+			if (err) return callback(err);
+			if (descriptor) return callback(null, descriptor);
+	        return loadDescriptorAt(plugin.node.path, selector, callback);
 		});
 	}
 
