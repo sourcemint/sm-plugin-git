@@ -259,7 +259,9 @@ exports.for = function(API, plugin) {
 		var opts = API.UTIL.copy(options);
 		opts.now = opts.now || options.forceClone || false;
 
-		return plugin.getLatestInfoCache(uri, function(req, callback) {
+		var deferred = API.Q.defer();
+
+		plugin.getLatestInfoCache(uri, function(req, callback) {
 			if (req.method === "HEAD") {
 				return callback(null, {
 					statusCode: 200,
@@ -272,6 +274,7 @@ exports.for = function(API, plugin) {
 
 				var cachePath = plugin.node.getCachePath("external", uri);
 				var deferred = API.Q.defer();
+
 				PATH.exists(cachePath, function(cacheExists) {
 					PATH.exists(PATH.join(plugin.node.path, ".git"), function(workingHasRepo) {
 						try {
@@ -445,13 +448,15 @@ exports.for = function(API, plugin) {
 			}
 			throw new Error("Method '" + req.method + "' not implemented!");
 
-		}, opts).then(function(response) {
+		}, opts, function(err, response) {
+			if (err) return deferred.reject(err);
 			var info = JSON.parse(response.body.toString());
 			if (info) {
 				info.cachePath = plugin.node.getCachePath("external", uri);
 			}
-			return info;
+			return deferred.resolve(info);
 		});
+		return deferred.promise;
 	}
 
     plugin.extract = function(fromPath, toPath, locator, options) {
