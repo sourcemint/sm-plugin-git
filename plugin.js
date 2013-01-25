@@ -17,38 +17,40 @@ exports.for = function(API, plugin) {
 	//		Call fetch on package if exists (ideally fetch from cache instead of online).
 
 	function fetchIfApplicable(path, options, callback) {
+        if (typeof fetched[path] !== "undefined") {
+        	if (API.UTIL.isArrayLike(fetched[path])) {
+        		fetched[path].push(callback);
+        	} else {
+				callback(null, fetched[path]);
+        	}
+        	return;
+        }
+        fetched[path] = [
+        	callback
+        ];
+        function success(response) {
+        	if (!response) response = false;
+			var callbacks = fetched[path];
+        	fetched[path] = response;
+        	callbacks.forEach(function(callback) {
+        		return callback(null, response);
+        	});
+        }
+        function fail(err) {
+			var callbacks = fetched[path];
+        	delete fetched[path];
+        	callbacks.forEach(function(callback) {
+        		return callback(err);
+        	});
+        }
 	    var git = GIT.interfaceForPath(API, path, {
 	        verbose: options.debug
 	    });
 	    // TODO: Don't call status here. Only get `status.tracking`, `status.noremote`, `status.branch` and `status.rev`.
 	    return git.status({}, function(err, status) {
-	    	if (err) return callback(err);
-	        if (status.type !== "git") return callback(null, false);
-	        if (!options.now) return callback(null, status);
-
-	        if (fetched[path]) {
-	        	if (API.UTIL.isArrayLike(fetched[path])) {
-	        		fetched[path].push(callback);
-	        	} else {
-					callback(null, fetched[path]);
-	        	}
-	        	return;
-	        }
-	        fetched[path] = [
-	        	callback
-	        ];
-	        function success(response) {
-	        	fetched[path].forEach(function(callback) {
-	        		return callback(null, response);
-	        	});
-	        	fetched[path] = response;
-	        }
-	        function fail(err) {
-	        	fetched[path].forEach(function(callback) {
-	        		return callback(err);
-	        	});
-	        	delete fetched[path];
-	        }
+	    	if (err) return fail(err);
+	        if (status.type !== "git") return success(false);
+	        if (!options.now) return success(status);
             if (status.tracking) {
                 return git.fetch("origin", {
                     verbose: options.verbose
