@@ -132,7 +132,7 @@ exports.for = function(API, plugin) {
 		});
 	}
 
-    plugin.resolveLocator = function(locator, options) {
+    plugin.resolveLocator = function(locator, options, callback) {
         var self = this;
 
         if (!locator.vcs) locator.vcs = "git";
@@ -141,7 +141,7 @@ exports.for = function(API, plugin) {
 	        // TODO: Parse `locator.descriptor.pointer` and set `locator.getLocation` function.    	
         }
 
-        if (!locator.selector || locator.version) return self.API.Q.resolve();
+        if (!locator.selector || locator.version) return callback(null, locator);
 
         // See if `locator.selector` is a 'version'.
 
@@ -176,20 +176,16 @@ exports.for = function(API, plugin) {
 			}).fail(callback);
         }
 
-        var deferred = API.Q.defer();
+        return checkPath(plugin.node.getCachePath("external", locator.getLocation("git-write") || locator.getLocation("git-read")), true, function(err) {
+        	if (err) return callback(err);
 
-        checkPath(plugin.node.getCachePath("external", locator.getLocation("git-write") || locator.getLocation("git-read")), true, function(err) {
-        	if (err) return deferred.reject(err);
-
-			if (locator.rev || !plugin.node.exists) return deferred.resolve();
+			if (locator.rev || !plugin.node.exists) return callback(null, locator);
 
 	        checkPath(plugin.node.path, false, function(err) {
-	        	if (err) return deferred.reject(err);
-	        	return deferred.resolve();
+	        	if (err) return callback(err);
+	        	return callback(null, locator);
 	        });
         });
-
-        return deferred.promise;
     }
 
 	plugin.status = function(options) {
