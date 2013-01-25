@@ -119,6 +119,7 @@ exports.for = function(API, plugin) {
 							type: "git",
 							raw: status,
 							rev: status.rev,
+							tagged: status.tagged,
 							version: status.tagged,
 							selector: (status.branch && status.branch !== status.rev)?status.branch:false,
 							versions: status.tags || [],
