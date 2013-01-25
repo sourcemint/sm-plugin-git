@@ -228,34 +228,30 @@ exports.for = function(API, plugin) {
 		    return git.isRepository(function(err, isRepository) {
 		    	if (err) return callback(err);
 		    	if (!isRepository) return callback(null, false);
-			    return git.show(selector, "package.json").then(function(result) {
-			    	if (!result) return false;
+			    return git.show(selector, "package.json", {}, function(err, result) {
+			    	if (err) return callback(err);
+			    	if (!result) return callback(null, false);
+			    	var info = {};
 			    	try {
-				    	var info = {
-				    		descriptor: JSON.parse(result)
-				    	};
-				    	var deferred = API.Q.defer();
-						git.callGit([
-		                    "rev-parse",
-		                    selector
-		                ], {}, function(err, result) {
-		                	if (err) return deferred.reject(err);
-		                    info.rev = result.replace(/\n$/, "");
-							return git.isTagged(null, options, function(err, isTagged) {
-								if (err) return deferred.reject(err);
-	                            if (isTagged) {
-	                                info.version = isTagged;
-	                            }
-			                	return deferred.resolve(info);
-	                        });
-		                });
-		                return deferred.promise;
+				    	info.descriptor = JSON.parse(result);
 			    	} catch(err) {
-			    		throw new new Error("Error '" + err. message + "' parsing 'package.json' from '" + path + "' at '" + selector + "'");
+			    		return callback(new new Error("Error '" + err. message + "' parsing 'package.json' from '" + path + "' at '" + selector + "'"));
 			    	}
-			    }).then(function(info) {
-					return callback(null, info);
-				}, callback);
+					return git.callGit([
+	                    "rev-parse",
+	                    selector
+	                ], {}, function(err, result) {
+	                	if (err) return callback(err);
+	                    info.rev = result.replace(/\n$/, "");
+						return git.isTagged(null, options, function(err, isTagged) {
+							if (err) return callback(err);
+                            if (isTagged) {
+                                info.version = isTagged;
+                            }
+		                	return callback(null, info);
+                        });
+	                });
+			    });
 			});
 		}
 		return loadDescriptorAt(
@@ -269,19 +265,17 @@ exports.for = function(API, plugin) {
 		});
 	}
 
-	plugin.hasRevInHistory = function(rev, options) {
+	plugin.hasRevInHistory = function(rev, options, callback) {
 		var git = GIT.interfaceForPath(API, plugin.node.path, {
 	        verbose: options.debug
 	    });
-	    var deferred = API.Q.defer();
-		git.callGit([
+		return git.callGit([
 	        "rev-parse",
 	        rev
 	    ], {}, function(err, result) {
-	    	if (err) return deferred.resolve(false);
-	    	return deferred.resolve(true);
+	    	if (err) return callback(null, false);
+	    	return callback(null, true);
 	    });
-	    return deferred.promise;
 	}
 
 	plugin.latest = function(options, callback) {
