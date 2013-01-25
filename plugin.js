@@ -28,7 +28,7 @@ exports.for = function(API, plugin) {
 	        if (fetched[path]) {
 	        	return fetched[path];
 	        }
-	        return fetched[path] = API.Q.call(function() {
+	        return fetched[path] = API.Q.fcall(function() {
 	            if (status.tracking) {
 	                return git.fetch("origin", {
 	                    verbose: options.verbose
@@ -71,7 +71,7 @@ exports.for = function(API, plugin) {
 	            // TODO: Reorganize status info and provide complete local status to determine if ANYTHING has changed compared to 'origin'.
 	            //       This should also include extra remotes.
 
-		        var done = API.Q.ref();
+		        var done = API.Q.resolve();
 
 		        if (!status) {
 		            done = API.Q.when(done, function() {
@@ -510,7 +510,7 @@ exports.for = function(API, plugin) {
 
                 // TODO: Init/update .gitmodules if applicable.
 
-                var done = API.Q.ref();
+                var done = API.Q.resolve();
 
 				if (locator.selector) {
 					// We have a branch.
@@ -646,7 +646,7 @@ exports.for = function(API, plugin) {
     plugin.edit = function(locator, options) {
     	var self = this;
 
-        var done = API.Q.ref();
+        var done = API.Q.resolve();
 
 /*
         if (self.package.inParent) {
