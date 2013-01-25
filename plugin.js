@@ -16,118 +16,136 @@ exports.for = function(API, plugin) {
 	//		Call fetch+pull on cache if exists
 	//		Call fetch on package if exists (ideally fetch from cache instead of online).
 
-	function fetchIfApplicable(path, options) {
+	function fetchIfApplicable(path, options, callback) {
 	    var git = GIT.interfaceForPath(API, path, {
 	        verbose: options.debug
 	    });
 	    // TODO: Don't call status here. Only get `status.tracking`, `status.noremote`, `status.branch` and `status.rev`.
-	    return git.status().then(function(status) {
-	        if (status.type !== "git") return false;
-	        if (!options.now) return status;
+	    return git.status({}, function(err, status) {
+	    	if (err) return callback(err);
+	        if (status.type !== "git") return callback(null, false);
+	        if (!options.now) return callback(null, status);
 
 	        if (fetched[path]) {
-	        	return fetched[path];
+	        	if (API.UTIL.isArrayLike(fetched[path])) {
+	        		fetched[path].push(callback);
+	        	} else {
+					callback(null, fetched[path]);
+	        	}
+	        	return;
 	        }
-	        return fetched[path] = API.Q.fcall(function() {
-	            if (status.tracking) {
-	                return git.fetch("origin", {
+	        fetched[path] = [
+	        	callback
+	        ];
+	        function success(response) {
+	        	fetched[path].forEach(function(callback) {
+	        		return callback(null, response);
+	        	});
+	        	fetched[path] = response;
+	        }
+	        function fail(err) {
+	        	fetched[path].forEach(function(callback) {
+	        		return callback(err);
+	        	});
+	        	delete fetched[path];
+	        }
+            if (status.tracking) {
+                return git.fetch("origin", {
+                    verbose: options.verbose
+                }).then(function() {
+                	if (!options.pull) return;
+	                return git.pull("origin", status.branch, {
 	                    verbose: options.verbose
-	                }).then(function() {
-	                	if (!options.pull) return;
-		                return git.pull("origin", status.branch, {
-		                    verbose: options.verbose
-		                }).fail(function(err) {
-		                	if (/fatal: Couldn't find remote ref master/.test(err.message)) {
-		                		// This happens when remote git repo has not commits.
-		                		return;
-		                	}
-		                	throw err;
-		                });
+	                }).fail(function(err) {
+	                	if (/fatal: Couldn't find remote ref master/.test(err.message)) {
+	                		// This happens when remote git repo has not commits.
+	                		return;
+	                	}
+	                	throw err;
 	                });
-	            } else if (status.noremote !== true) {
-	                // TODO: `status.branch` should not be set if `status.branch === status.rev`.
-	                if (status.branch !== status.rev) {
-	                    return git.fetch(["origin", status.branch], {
-	                        verbose: options.verbose
-	                    });
-	                }
-	            }
-	        }).then(function() {
-	        	return false;
-	        });
+                }).then(success, fail);
+            } else if (status.noremote !== true) {
+                // TODO: `status.branch` should not be set if `status.branch === status.rev`.
+                if (status.branch !== status.rev) {
+                    return git.fetch(["origin", status.branch], {
+                        verbose: options.verbose
+                    }).then(success, fail);
+                }
+            }
+            return success(false);
 		});
 	}
 
-	function getStatus(path, options) {
-		return fetchIfApplicable(path, options).then(function(status) {
+	function getStatus(path, options, callback) {
+		return fetchIfApplicable(path, options, function(err, status) {
+			if (err) return callback(err);
 
 			var git = GIT.interfaceForPath(API, path, {
 		        verbose: options.debug
 		    });
 
-		    return git.isRepository().then(function(isRepository) {
-		    	if (!isRepository) return false;
+		    return git.isRepository(function(err, isRepository) {
+		    	if (!isRepository) return callback(null, false);
 
 	            // TODO: Reorganize status info and provide complete local status to determine if ANYTHING has changed compared to 'origin'.
 	            //       This should also include extra remotes.
 
-		        var done = API.Q.resolve();
+	            function ensureStatus(callback) {
+	            	if (status) return callback(null);
+	                return git.status({}, function(err, newStatus) {
+	                	if (err) return callback(err);
+	                    status = newStatus;
+	                    return callback(null);
+	                });
+	            }
 
-		        if (!status) {
-		            done = API.Q.when(done, function() {
-		                return git.status().then(function(newStatus) {
-		                    status = newStatus;
-		                });
-		            });
-		        }
+	            return ensureStatus(function(err) {
+	            	if (err) return callback(err);
 
-		        return API.Q.when(done, function() {
-		            return git.remotes().then(function(remotes) {
+					return git.remotes().then(function(remotes) {
 		                if (remotes["origin"]) {
 		                    status.remoteUri = remotes["origin"]["push-url"];
 		                    if (/^[^@]*@[^:]*:/.test(status.remoteUri)) {
 		                        status.writable = true;
 		                    }
 		                }
-		            });
-		        }).then(function() {
-					var summary = {
-						type: "git",
-						raw: status,
-						rev: status.rev,
-						version: status.tagged,
-						selector: (status.branch && status.branch !== status.rev)?status.branch:false,
-						versions: status.tags || [],
-						dirty: status.dirty,
-						writable: status.writable,
-						ahead: status.ahead,
-						behind: status.behind,
-						descriptor: false
-					};
-					var deferred = API.Q.defer();
 
-					// TODO: Load all package descriptors with the various overlays.
-					PATH.exists(PATH.join(path, "package.json"), function(exists) {
-						if (!exists) return deferred.resolve(summary);
-						FS.readFile(PATH.join(path, "package.json"), function(err, data) {
-							try {
-								summary.descriptor = JSON.parse(data);
-							} catch(err) {
-								console.error("Error parsing JSON from: " + PATH.join(path, "package.json"));
-							}
-							// NOTE: `summary.version` holds the tagged version if set and falls back to
-							//		 version declared in package descriptor if not set. To reference
-							//		 exact package always use `summary.rev` as it always more narrow than
-							//		 `summary.version`.
-							if (!summary.version && summary.descriptor.version) {
-								summary.version = summary.descriptor.version;
-							}
-							return deferred.resolve(summary);
+						var summary = {
+							type: "git",
+							raw: status,
+							rev: status.rev,
+							version: status.tagged,
+							selector: (status.branch && status.branch !== status.rev)?status.branch:false,
+							versions: status.tags || [],
+							dirty: status.dirty,
+							writable: status.writable,
+							ahead: status.ahead,
+							behind: status.behind,
+							descriptor: false
+						};
+
+						// TODO: Load all package descriptors with the various overlays.
+						return PATH.exists(PATH.join(path, "package.json"), function(exists) {
+							if (!exists) return callback(null, summary);
+							FS.readFile(PATH.join(path, "package.json"), function(err, data) {
+								try {
+									summary.descriptor = JSON.parse(data);
+								} catch(err) {
+									console.error("Error parsing JSON from: " + PATH.join(path, "package.json"));
+								}
+								// NOTE: `summary.version` holds the tagged version if set and falls back to
+								//		 version declared in package descriptor if not set. To reference
+								//		 exact package always use `summary.rev` as it always more narrow than
+								//		 `summary.version`.
+								if (!summary.version && summary.descriptor.version) {
+									summary.version = summary.descriptor.version;
+								}
+								return callback(null, summary);
+							});
 						});
-					});
 
-		            return deferred.promise;
-		        });
+		            }).fail(callback);
+	            });
 	        });
 		});
 	}
@@ -148,7 +166,8 @@ exports.for = function(API, plugin) {
         function checkPath(path, pull, callback) {
         	var opts = API.UTIL.copy(options);
         	if (pull) opts.pull = true;
-			return fetchIfApplicable(path, opts).then(function(status) {
+			return fetchIfApplicable(path, opts, function(err, status) {
+				if (err) return callback(err);
 	            var git = GIT.interfaceForPath(API, path, {
 			        verbose: options.debug
 			    });
@@ -173,7 +192,7 @@ exports.for = function(API, plugin) {
 	                	return callback(null);
 	                });
 				});
-			}).fail(callback);
+			});
         }
 
         return checkPath(plugin.node.getCachePath("external", locator.getLocation("git-write") || locator.getLocation("git-read")), true, function(err) {
@@ -188,9 +207,9 @@ exports.for = function(API, plugin) {
         });
     }
 
-	plugin.status = function(options) {
-		if (!plugin.node.exists) return API.Q.resolve(false);
-		return getStatus(plugin.node.path, options);
+	plugin.status = function(options, callback) {
+		if (!plugin.node.exists) return callback(null, false);
+		return getStatus(plugin.node.path, options, callback);
 	}
 
 	plugin.descriptorForSelector = function(locator, selector, options, callback) {
@@ -422,9 +441,12 @@ exports.for = function(API, plugin) {
 			                	// TODO: Keep latest status cached in local external cache at `cachePath + "-latest"` and
 			                	//		 use 'ttl' to determine if we need to fetch.
 
-								return getStatus(cachePath, options);
+								return getStatus(cachePath, options, function(err, status) {
+									if (err) return deferred.reject(err);
+									return deferred.resolve(status);
+								});
 
-			                }).then(deferred.resolve, deferred.reject);
+			                }).fail(deferred.reject);
 						} catch(err) {
 							return deferred.reject(err);
 						}
@@ -615,7 +637,9 @@ exports.for = function(API, plugin) {
         var git = GIT.interfaceForPath(API, self.node.path, {
             verbose: options.debug
         });
-	    return git.status().then(function(status) {	    	
+        var deferred = API.Q.defer();
+	    git.status({}, function(err, status) {	  
+	    	if (err) return deferred.reject(err);  	
 	        return git.commit("bump package version to v" + newVersion, {
 	            add: true
 	        }).then(function() {
@@ -623,8 +647,9 @@ exports.for = function(API, plugin) {
 	            return git.tag(tag).then(function() {
 	                API.TERM.stdout.writenl("\0green(Committed version change and tagged package '" + self.node.path + "' (on branch '" + status.branch + "') with tag '" + tag + "'.\0)");
 	            });
-	        });
+	        }).then(deferred.resolve, deferred.reject);
 	    });
+	    return deferred.promise;
     }
 
     plugin.publish = function(options) {
@@ -632,15 +657,18 @@ exports.for = function(API, plugin) {
         var git = GIT.interfaceForPath(API, self.node.path, {
             verbose: options.debug
         });
-	    return git.status().then(function(status) {
+        var deferred = API.Q.defer();
+	    git.status({}, function(err, status) {
+	    	if (err) return deferred.reject(err);
             return git.push({
                 tags: true,
                 branch: status.branch,
                 remote: "origin"
             }).then(function() {
                 API.TERM.stdout.writenl("\0green(Pushed git branch '" + status.branch + "' of package '" + self.node.path + "' to remote '" + "origin" + "'.\0)");
-            });
+            }).then(deferred.resolve, deferred.reject);
 	    });
+	    return deferred.promise;
     }
 
     plugin.edit = function(locator, options) {
