@@ -190,12 +190,13 @@ exports.for = function(API, plugin) {
 	                    if (locator.rev.substring(0, locator.selector.length) === locator.selector) {
 	                    	locator.selector = false;
 	                    }
-						return git.isTagged(locator.rev, options).then(function(isTagged) {
+						return git.isTagged(locator.rev, options, function(err, isTagged) {
+							if (err) return callback(err);
                             if (isTagged) {
                                 locator.version = isTagged;
                             }
 		                	return callback(null);
-                        }).fail(callback);
+                        });
 	                });
 				});
 			});
@@ -240,12 +241,13 @@ exports.for = function(API, plugin) {
 		                ], {}, function(err, result) {
 		                	if (err) return deferred.reject(err);
 		                    info.rev = result.replace(/\n$/, "");
-							return git.isTagged(options).then(function(isTagged) {
+							return git.isTagged(null, options, function(err, isTagged) {
+								if (err) return deferred.reject(err);
 	                            if (isTagged) {
 	                                info.version = isTagged;
 	                            }
 			                	return deferred.resolve(info);
-	                        }).fail(deferred.reject);
+	                        });
 		                });
 		                return deferred.promise;
 			    	} catch(err) {
