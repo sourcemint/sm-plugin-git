@@ -105,7 +105,9 @@ exports.for = function(API, plugin) {
 	            return ensureStatus(function(err) {
 	            	if (err) return callback(err);
 
-					return git.remotes().then(function(remotes) {
+					return git.remotes(function(err, remotes) {
+						if (err) return callback(err);
+
 		                if (remotes["origin"]) {
 		                    status.remoteUri = remotes["origin"]["push-url"];
 		                    if (/^[^@]*@[^:]*:/.test(status.remoteUri)) {
@@ -146,8 +148,7 @@ exports.for = function(API, plugin) {
 								return callback(null, summary);
 							});
 						});
-
-		            }).fail(callback);
+		            });
 	            });
 	        });
 		});
@@ -529,7 +530,8 @@ exports.for = function(API, plugin) {
             });
 
             // TODO: Call this on `toPath`?
-            return git.remotes().then(function(remotes) {
+            var deferred = API.Q.defer();
+            git.remotes(function(err, remotes) {
                 var remoteBranches = [];
                 var branches = {};
                 if (remotes && remotes["origin"]) {
@@ -580,8 +582,9 @@ exports.for = function(API, plugin) {
                 	} else {
                         return 200;
                     }
-                });
+                }).then(deferred.resolve, deferred.reject);
             });
+			return deferred.promise;
         });
     };
 
