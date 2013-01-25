@@ -87,6 +87,7 @@ exports.for = function(API, plugin) {
 		    });
 
 		    return git.isRepository(function(err, isRepository) {
+		    	if (err) return callback(err);
 		    	if (!isRepository) return callback(null, false);
 
 	            // TODO: Reorganize status info and provide complete local status to determine if ANYTHING has changed compared to 'origin'.
@@ -168,17 +169,22 @@ exports.for = function(API, plugin) {
         function checkPath(path, pull, callback) {
         	var opts = API.UTIL.copy(options);
         	if (pull) opts.pull = true;
-			return fetchIfApplicable(path, opts, function(err, status) {
+			return fetchIfApplicable(path, opts, function(err) {
 				if (err) return callback(err);
 	            var git = GIT.interfaceForPath(API, path, {
 			        verbose: options.debug
 			    });
-				return git.isRepository().then(function(isRepository) {
+				return git.isRepository(function(err, isRepository) {
+					if (err) return callback(err);
 					if (!isRepository) return callback(null);
 					return git.callGit([
 	                    "rev-parse",
 	                    locator.selector
-	                ]).then(function(result) {
+	                ], {}, function(err, result) {
+	                	if (err) {
+		                	// 'selector' not found as branch or ref in repo.
+	                		return callback(null);
+	                	}
 	                    locator.rev = result.replace(/\n$/, "");
 	                    if (locator.rev.substring(0, locator.selector.length) === locator.selector) {
 	                    	locator.selector = false;
@@ -188,10 +194,7 @@ exports.for = function(API, plugin) {
                                 locator.version = isTagged;
                             }
 		                	return callback(null);
-                        });
-	                }, function() {
-	                	// 'selector' not found as branch or ref in repo.
-	                	return callback(null);
+                        }).fail(callback);
 	                });
 				});
 			});
@@ -220,33 +223,37 @@ exports.for = function(API, plugin) {
 			var git = GIT.interfaceForPath(API, path, {
 		        verbose: options.debug
 		    });
-		    return git.isRepository().then(function(isRepository) {
-		    	if (!isRepository) return false;
+		    return git.isRepository(function(err, isRepository) {
+		    	if (err) return callback(err);
+		    	if (!isRepository) return callback(null, false);
 			    return git.show(selector, "package.json").then(function(result) {
 			    	if (!result) return false;
 			    	try {
 				    	var info = {
 				    		descriptor: JSON.parse(result)
 				    	};
-						return git.callGit([
+				    	var deferred = API.Q.defer();
+						git.callGit([
 		                    "rev-parse",
 		                    selector
-		                ]).then(function(result) {
+		                ], {}, function(err, result) {
+		                	if (err) return deferred.reject(err);
 		                    info.rev = result.replace(/\n$/, "");
 							return git.isTagged(options).then(function(isTagged) {
 	                            if (isTagged) {
 	                                info.version = isTagged;
 	                            }
-			                	return info;
-	                        });
+			                	return deferred.resolve(info);
+	                        }).fail(deferred.reject);
 		                });
+		                return deferred.promise;
 			    	} catch(err) {
-			    		throw new Error("Error parsing 'package.json' from '" + path + "' at '" + selector + "'");
+			    		throw new new Error("Error '" + err. message + "' parsing 'package.json' from '" + path + "' at '" + selector + "'");
 			    	}
-			    });
-			}).then(function(info) {
-				return callback(null, info);
-			}, callback);
+			    }).then(function(info) {
+					return callback(null, info);
+				}, callback);
+			});
 		}
 		return loadDescriptorAt(
 			plugin.node.getCachePath("external", locator.getLocation("git-write") || locator.getLocation("git-read")),
@@ -263,14 +270,15 @@ exports.for = function(API, plugin) {
 		var git = GIT.interfaceForPath(API, plugin.node.path, {
 	        verbose: options.debug
 	    });
-		return git.callGit([
+	    var deferred = API.Q.defer();
+		git.callGit([
 	        "rev-parse",
 	        rev
-	    ]).then(function(result) {
-	    	return true;
-	    }, function() {
-	    	return false;
+	    ], {}, function(err, result) {
+	    	if (err) return deferred.resolve(false);
+	    	return deferred.resolve(true);
 	    });
+	    return deferred.promise;
 	}
 
 	plugin.latest = function(options, callback) {
@@ -324,74 +332,44 @@ exports.for = function(API, plugin) {
 
 			                var status = false;
 
-			                return git.isRepository().then(function(isRepository) {
-			                    if (isRepository) {
+			                return git.isRepository(function(err, isRepository) {
+			                	if (err) return deferred.reject(err);
 
-			                        function fetch() {
-										options.logger.debug("git fetch from '" + uri + "'.");
+			                	return API.Q.fcall(function() {
 
-			                            // TODO: Based on `options.now` don't fetch.
-			                            // TODO: Based on `options.time` track if called multiple times and only proceed once.
-			                            return git.fetch("origin").then(function(code) {
-			                                // TODO: More finer grained update checking. If branch has not changed report 304.
-			                                status = code;
-			                            }).fail(function(err) {
-			                                TERM.stdout.writenl("\0red(" + err.message + "\0)");
-			                                TERM.stdout.writenl("\0red([sm] TODO: If remote origin URL is a read URL switch to write URL and try again. If still fails switch back to read URL.\0)");
-			                                throw err;
-			                            });
-			                        }
+				                    if (isRepository) {
 
-			                        if (
-			                        	typeof self.node.summary.declaredLocator.rev !== "undefined" ||
-			                        	self.node.summary.declaredLocator.version !== "undefined"
-			                        ) {
-			                            // We have a ref or version in a local or fetched remote branch or a tag.
-			                            // We don't need to fetch even if options.now is set as our ref/version already exists locally.
-// TODO: Fetch anyway as we want the *latest online info*.
-			                            status = 304;
-			                            return;
-			                        }
+				                        function fetch() {
+											options.logger.debug("git fetch from '" + uri + "'.");
 
-			                        if (typeof self.node.summary.declaredLocator.selector !== "undefined") {
-			                            // Not found. `self.node.summary.declaredLocator.selector` is an unfetched ref or tag or a branch name.
-			                            // Check if `self.node.summary.declaredLocator.selector` is a fetched remote branch name (locally we only have the 'master' branch).
-			                            var deferred = API.Q.defer();
-			                            PATH.exists(PATH.join(cachePath, ".git/refs/remotes/origin", self.node.summary.declaredLocator.selector), function(exists) {
-			                                if (exists) {
-			                                    // `fromLocator.version` is a fetched remote branch name. We fetch latest only if `options.now` is set.
-			                                    if (options.now) {
-			                                        return fetch().then(deferred.resolve, deferred.reject);
-			                                    }
-			                                    status = 304;
-			                                    return deferred.resolve();
-			                                }
-			                                // We need to fetch as `fromLocator.version` is not found to me a fetched remote branch name.
-			                                return fetch().then(deferred.resolve, deferred.reject);
-			                            });
-			                            return deferred.promise;
-			                        }
+				                            // TODO: Based on `options.now` don't fetch.
+				                            // TODO: Based on `options.time` track if called multiple times and only proceed once.
+				                            return git.fetch("origin").then(function(code) {
+				                                // TODO: More finer grained update checking. If branch has not changed report 304.
+				                                status = code;
+				                            }).fail(function(err) {
+				                                TERM.stdout.writenl("\0red(" + err.message + "\0)");
+				                                TERM.stdout.writenl("\0red([sm] TODO: If remote origin URL is a read URL switch to write URL and try again. If still fails switch back to read URL.\0)");
+				                                throw err;
+				                            });
+				                        }
 
-									// We don't have a rev or selector so we need to fetch latest.
-									return fetch();
-
-
-/*
-			                        // If we have a version set only fetch if not found locally.
-			                        if (typeof self.node.summary.declaredLocator.version !== "undefined") {
-				                        return git.callGit([
-				                            "rev-parse",
-				                            self.node.summary.declaredLocator.version
-				                        ]).then(function(result) {
-				                            // `self.node.summary.declaredLocator.version` is a ref in a local or fetched remote branch or a tag.
-				                            // We don't need to fetch even if options.now is set as our ref already exists locally.
+				                        if (
+				                        	typeof self.node.summary.declaredLocator.rev !== "undefined" ||
+				                        	self.node.summary.declaredLocator.version !== "undefined"
+				                        ) {
+				                            // We have a ref or version in a local or fetched remote branch or a tag.
+				                            // We don't need to fetch even if options.now is set as our ref/version already exists locally.
+	// TODO: Fetch anyway as we want the *latest online info*.
 				                            status = 304;
 				                            return;
-				                        }, function() {
-				                            // Not found. `self.node.summary.declaredLocator.version` is an unfetched ref or tag or a branch name.
-				                            // Check if `fromLocator.version` is a fetched remote branch name (locally we only have the 'master' branch).
+				                        }
+
+				                        if (typeof self.node.summary.declaredLocator.selector !== "undefined") {
+				                            // Not found. `self.node.summary.declaredLocator.selector` is an unfetched ref or tag or a branch name.
+				                            // Check if `self.node.summary.declaredLocator.selector` is a fetched remote branch name (locally we only have the 'master' branch).
 				                            var deferred = API.Q.defer();
-				                            PATH.exists(PATH.join(cachePath, ".git/refs/remotes/origin", fromLocator.version), function(exists) {
+				                            PATH.exists(PATH.join(cachePath, ".git/refs/remotes/origin", self.node.summary.declaredLocator.selector), function(exists) {
 				                                if (exists) {
 				                                    // `fromLocator.version` is a fetched remote branch name. We fetch latest only if `options.now` is set.
 				                                    if (options.now) {
@@ -404,51 +382,86 @@ exports.for = function(API, plugin) {
 				                                return fetch().then(deferred.resolve, deferred.reject);
 				                            });
 				                            return deferred.promise;
-				                        });
-									} else {
-										// We don't have a version so we need to fetch latest.
+				                        }
+
+										// We don't have a rev or selector so we need to fetch latest.
 										return fetch();
-									}
-*/
-			                    } else {
 
-			                        if (cacheExists) {
-			                            FS.rmdirSync(cachePath);
-			                        }
 
-			                        options.logger.debug("Clone `" + uri + "` to `" + cachePath + "` via git.");
+	/*
+				                        // If we have a version set only fetch if not found locally.
+				                        if (typeof self.node.summary.declaredLocator.version !== "undefined") {
+					                        return git.callGit([
+					                            "rev-parse",
+					                            self.node.summary.declaredLocator.version
+					                        ]).then(function(result) {
+					                            // `self.node.summary.declaredLocator.version` is a ref in a local or fetched remote branch or a tag.
+					                            // We don't need to fetch even if options.now is set as our ref already exists locally.
+					                            status = 304;
+					                            return;
+					                        }, function() {
+					                            // Not found. `self.node.summary.declaredLocator.version` is an unfetched ref or tag or a branch name.
+					                            // Check if `fromLocator.version` is a fetched remote branch name (locally we only have the 'master' branch).
+					                            var deferred = API.Q.defer();
+					                            PATH.exists(PATH.join(cachePath, ".git/refs/remotes/origin", fromLocator.version), function(exists) {
+					                                if (exists) {
+					                                    // `fromLocator.version` is a fetched remote branch name. We fetch latest only if `options.now` is set.
+					                                    if (options.now) {
+					                                        return fetch().then(deferred.resolve, deferred.reject);
+					                                    }
+					                                    status = 304;
+					                                    return deferred.resolve();
+					                                }
+					                                // We need to fetch as `fromLocator.version` is not found to me a fetched remote branch name.
+					                                return fetch().then(deferred.resolve, deferred.reject);
+					                            });
+					                            return deferred.promise;
+					                        });
+										} else {
+											// We don't have a version so we need to fetch latest.
+											return fetch();
+										}
+	*/
+				                    } else {
 
-			                        return git.clone(uri, {
-			                            // Always show clone progress as this can take a while.
-			                            verbose: true
-			                        }).then(function() {
+				                        if (cacheExists) {
+				                            FS.rmdirSync(cachePath);
+				                        }
 
-			                            // TODO: Write success file. If success file not present next time we access, re-clone.
+				                        options.logger.debug("Clone `" + uri + "` to `" + cachePath + "` via git.");
 
-			                            // See if we can push. If not we set remote origin url to read.
-			                            if (self.node.summary.declaredLocator.getLocation("git-read")) {
-			                                return git.canPush().then(function(canPush) {
-			                                    if (!canPush) {
-			                                        // We cannot push so we need to change the URI.
-			                                        return git.setRemote("origin", stripRevFromUri(self.node.summary.declaredLocator.getLocation("git-read")));
-			                                    }
-			                                });
-			                            }
-			                        }).then(function() {
-			                            status = 200;
-			                        });
-			                    }
-			                }).then(function() {
+				                        return git.clone(uri, {
+				                            // Always show clone progress as this can take a while.
+				                            verbose: true
+				                        }).then(function() {
 
-			                	// TODO: Keep latest status cached in local external cache at `cachePath + "-latest"` and
-			                	//		 use 'ttl' to determine if we need to fetch.
+				                            // TODO: Write success file. If success file not present next time we access, re-clone.
 
-								return getStatus(cachePath, options, function(err, status) {
-									if (err) return deferred.reject(err);
-									return deferred.resolve(status);
-								});
+				                            // See if we can push. If not we set remote origin url to read.
+				                            if (self.node.summary.declaredLocator.getLocation("git-read")) {
+				                                return git.canPush().then(function(canPush) {
+				                                    if (!canPush) {
+				                                        // We cannot push so we need to change the URI.
+				                                        return git.setRemote("origin", stripRevFromUri(self.node.summary.declaredLocator.getLocation("git-read")));
+				                                    }
+				                                });
+				                            }
+				                        }).then(function() {
+				                            status = 200;
+				                        });
+				                    }
+				                }).then(function() {
 
-			                }).fail(deferred.reject);
+				                	// TODO: Keep latest status cached in local external cache at `cachePath + "-latest"` and
+				                	//		 use 'ttl' to determine if we need to fetch.
+
+									return getStatus(cachePath, options, function(err, status) {
+										if (err) return deferred.reject(err);
+										return deferred.resolve(status);
+									});
+
+				                }).fail(deferred.reject);
+			                });
 						} catch(err) {
 							return deferred.reject(err);
 						}
@@ -471,7 +484,7 @@ exports.for = function(API, plugin) {
 					response.emit("end");
 				}).fail(callback);
 			}
-			throw new Error("Method '" + req.method + "' not implemented!");
+			return callback(new Error("Method '" + req.method + "' not implemented!"));
 
 		}, opts, function(err, response) {
 			if (err) return callback(err);
