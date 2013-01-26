@@ -283,6 +283,22 @@ exports.for = function(API, plugin) {
 	    });
 	}
 
+/*
+	// http://stackoverflow.com/a/3006203/330439
+	plugin.isRevDescendant = function(parent, child, options, callback) {
+		var git = GIT.interfaceForPath(API, plugin.node.path, {
+	        verbose: options.debug
+	    });
+		return git.callGit([
+	        "rev-parse",
+	        rev
+	    ], {}, function(err, result) {
+	    	if (err) return callback(null, false);
+	    	return callback(null, true);
+	    });
+	}
+*/
+
 	plugin.latest = function(options, callback) {
 		var self = this;
 
