@@ -65,13 +65,17 @@ exports.for = function(API, plugin) {
 	                	}
 	                	throw err;
 	                });
-                }).then(success, fail);
+                }).then(function() {
+                	return success(false);
+                }, fail);
             } else if (status.noremote !== true) {
                 // TODO: `status.branch` should not be set if `status.branch === status.rev`.
                 if (status.branch !== status.rev) {
                     return git.fetch(["origin", status.branch], {
                         verbose: options.verbose
-                    }).then(success, fail);
+                    }).then(function() {
+	                	return success(false);
+	                }, fail);
                 }
             }
             return success(false);
