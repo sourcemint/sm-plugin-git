@@ -568,23 +568,29 @@ exports.for = function(API, plugin) {
 
                 var done = API.Q.resolve();
 
+                var rev = (!locator.selector && locator.rev) || false;
+
 				if (locator.selector) {
 					// We have a branch.
-                    if (!locator.version && !branches[locator.selector]) {
-                    	// Setup a tracking branch.
-                        done = API.Q.when(done, function() {
-                        	options.logger.debug("Setting up remote tracking branch '" + locator.selector + "' for '" + locator + "'");
-                            return git.branch("origin/" + locator.selector, {
-                                track: locator.selector
-                            });
-                        });
+                    if (!locator.version && !branches[locator.selector]) {                    	
+                    	if (remoteBranches[locator.selector]) {
+	                    	// Setup a tracking branch.
+	                        done = API.Q.when(done, function() {
+	                        	options.logger.debug("Setting up remote tracking branch '" + locator.selector + "' for '" + locator + "'");
+	                            return git.branch("origin/" + locator.selector, {
+	                                track: locator.selector
+	                            });
+	                        });
+	                    } else {
+	                    	rev = locator.rev || false;
+	                    }
                     }
 				}
 
                 return API.Q.when(done, function() {
-                	if (locator.rev && !locator.selector) {
-	                	options.logger.debug("Checking out '" + locator.rev + "' at '" + toPath + "'");
-	                    return git.checkout(locator.rev, {
+                	if (rev) {
+	                	options.logger.debug("Checking out '" + rev + "' at '" + toPath + "'");
+	                    return git.checkout(rev, {
 	                        symbolic: options.vcsOnly || false
 	                    }).then(function() {
 	                    	/*
