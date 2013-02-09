@@ -1,6 +1,5 @@
 
 const PATH = require("path");
-const FS = require("fs");
 const GIT = require("./lib/git");
 const EVENTS = require("events");
 const CRYPTO = require("crypto");
@@ -135,9 +134,9 @@ exports.for = function(API, plugin) {
 						};
 
 						// TODO: Load all package descriptors with the various overlays.
-						return PATH.exists(PATH.join(path, "package.json"), function(exists) {
+						return API.FS.exists(PATH.join(path, "package.json"), function(exists) {
 							if (!exists) return callback(null, summary);
-							FS.readFile(PATH.join(path, "package.json"), function(err, data) {
+							API.FS.readFile(PATH.join(path, "package.json"), function(err, data) {
 								try {
 									summary.descriptor = JSON.parse(data);
 								} catch(err) {
@@ -323,8 +322,8 @@ exports.for = function(API, plugin) {
 				var cachePath = plugin.node.getCachePath("external", uri);
 				var deferred = API.Q.defer();
 
-				PATH.exists(cachePath, function(cacheExists) {
-					PATH.exists(PATH.join(plugin.node.path, ".git"), function(workingHasRepo) {
+				API.FS.exists(cachePath, function(cacheExists) {
+					API.FS.exists(PATH.join(plugin.node.path, ".git"), function(workingHasRepo) {
 						try {
 							// Fetch latest only if
 							if (!(
@@ -387,7 +386,7 @@ exports.for = function(API, plugin) {
 				                            // Not found. `self.node.summary.declaredLocator.selector` is an unfetched ref or tag or a branch name.
 				                            // Check if `self.node.summary.declaredLocator.selector` is a fetched remote branch name (locally we only have the 'master' branch).
 				                            var deferred = API.Q.defer();
-				                            PATH.exists(PATH.join(cachePath, ".git/refs/remotes/origin", self.node.summary.declaredLocator.selector), function(exists) {
+				                            API.FS.exists(PATH.join(cachePath, ".git/refs/remotes/origin", self.node.summary.declaredLocator.selector), function(exists) {
 				                                if (exists) {
 				                                    // `fromLocator.version` is a fetched remote branch name. We fetch latest only if `options.now` is set.
 				                                    if (options.now) {
@@ -421,7 +420,7 @@ exports.for = function(API, plugin) {
 					                            // Not found. `self.node.summary.declaredLocator.version` is an unfetched ref or tag or a branch name.
 					                            // Check if `fromLocator.version` is a fetched remote branch name (locally we only have the 'master' branch).
 					                            var deferred = API.Q.defer();
-					                            PATH.exists(PATH.join(cachePath, ".git/refs/remotes/origin", fromLocator.version), function(exists) {
+					                            API.FS.exists(PATH.join(cachePath, ".git/refs/remotes/origin", fromLocator.version), function(exists) {
 					                                if (exists) {
 					                                    // `fromLocator.version` is a fetched remote branch name. We fetch latest only if `options.now` is set.
 					                                    if (options.now) {
@@ -443,7 +442,7 @@ exports.for = function(API, plugin) {
 				                    } else {
 
 				                        if (cacheExists) {
-				                            FS.rmdirSync(cachePath);
+				                            API.FS.rmdirSync(cachePath);
 				                        }
 
 				                        options.logger.debug("Clone `" + uri + "` to `" + cachePath + "` via git.");
@@ -516,8 +515,8 @@ exports.for = function(API, plugin) {
 
     plugin.extract = function(fromPath, toPath, locator, options) {
 
-        if (!PATH.existsSync(toPath)) {
-            API.FS_RECURSIVE.mkdirSyncRecursive(toPath);
+        if (!API.FS.existsSync(toPath)) {
+            API.FS.mkdirsSync(toPath);
         }
 
         var copyFrom = fromPath;
@@ -529,16 +528,19 @@ exports.for = function(API, plugin) {
 
         options.logger.debug("Copying '" + copyFrom + "' to '" + copyTo + "'");
 
+        var deferred = API.Q.defer();
+
         // TODO: Use git export if `options.vcsOnly !== true` instead of copying everything.
-        return API.FS_RECURSIVE.osCopyDirRecursive(copyFrom, copyTo).then(function() {
+        API.FS.copy(copyFrom, copyTo, function(err) {
+        	if (err) return deferred.reject(err);
 
             if (options.vcsOnly) {
             	// TODO: Optimize.
-                if (PATH.existsSync(PATH.join(copyFrom, "../.gitignore"))) {
-                    FS.writeFileSync(PATH.join(copyTo, "../.gitignore"), FS.readFileSync(PATH.join(copyFrom, "../.gitignore")));
+                if (API.FS.existsSync(PATH.join(copyFrom, "../.gitignore"))) {
+                    API.FS.writeFileSync(PATH.join(copyTo, "../.gitignore"), API.FS.readFileSync(PATH.join(copyFrom, "../.gitignore")));
                 }
-                if (PATH.existsSync(PATH.join(copyFrom, "../.gitmodules"))) {
-                    FS.writeFileSync(PATH.join(copyTo, "../.gitmodules"), FS.readFileSync(PATH.join(copyFrom, "../.gitmodules")));
+                if (API.FS.existsSync(PATH.join(copyFrom, "../.gitmodules"))) {
+                    API.FS.writeFileSync(PATH.join(copyTo, "../.gitmodules"), API.FS.readFileSync(PATH.join(copyFrom, "../.gitmodules")));
                 }
             }
 
@@ -547,7 +549,6 @@ exports.for = function(API, plugin) {
             });
 
             // TODO: Call this on `toPath`?
-            var deferred = API.Q.defer();
             git.remotes(function(err, remotes) {
                 var remoteBranches = [];
                 var branches = {};
@@ -607,8 +608,8 @@ exports.for = function(API, plugin) {
                     }
                 }).then(deferred.resolve, deferred.reject);
             });
-			return deferred.promise;
         });
+		return deferred.promise;
     };
 
     plugin.bump = function(options) {
@@ -671,9 +672,9 @@ exports.for = function(API, plugin) {
 
 		API.TERM.stdout.writenl(message);
 
-        var descriptor = JSON.parse(FS.readFileSync(PATH.join(self.node.path, "package.json")));
+        var descriptor = JSON.parse(API.FS.readFileSync(PATH.join(self.node.path, "package.json")));
         descriptor.version = newVersion;
-        FS.writeFileSync(PATH.join(self.node.path, "package.json"), JSON.stringify(descriptor, null, 4));
+        API.FS.writeFileSync(PATH.join(self.node.path, "package.json"), JSON.stringify(descriptor, null, 4));
 
         var git = GIT.interfaceForPath(API, self.node.path, {
             verbose: options.debug
