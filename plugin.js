@@ -16,28 +16,36 @@ exports.for = function(API, plugin) {
 	//		Call fetch on package if exists (ideally fetch from cache instead of online).
 
 	function fetchIfApplicable(path, options, callback) {
-        if (typeof fetched[path] !== "undefined") {
-        	if (API.UTIL.isArrayLike(fetched[path])) {
-        		fetched[path].push(callback);
+
+		if (!fetched[options.time]) fetched[options.time] = {};
+
+        if (typeof fetched[options.time][path] !== "undefined") {
+        	if (API.UTIL.isArrayLike(fetched[options.time][path])) {
+        		fetched[options.time][path].push(callback);
         	} else {
-				callback(null, fetched[path]);
+				callback(null, fetched[options.time][path]);
         	}
         	return;
         }
-        fetched[path] = [
+        fetched[options.time][path] = [
         	callback
         ];
         function success(response) {
         	if (!response) response = false;
-			var callbacks = fetched[path];
-        	fetched[path] = response;
+			var callbacks = fetched[options.time][path];
+			if (options.now) {
+				// TODO: Reset fetched if we pushed something.
+	        	fetched[options.time][path] = response;
+	        } else {
+	        	delete fetched[options.time][path];
+	        }
         	callbacks.forEach(function(callback) {
         		return callback(null, response);
         	});
         }
         function fail(err) {
-			var callbacks = fetched[path];
-        	delete fetched[path];
+			var callbacks = fetched[options.time][path];
+        	delete fetched[options.time][path];
         	callbacks.forEach(function(callback) {
         		return callback(err);
         	});
@@ -220,7 +228,36 @@ exports.for = function(API, plugin) {
 
 	plugin.status = function(options, callback) {
 		if (!plugin.node.exists) return callback(null, false);
-		return getStatus(plugin.node.path, options, callback);
+		return getStatus(plugin.node.path, options, function (err, status) {
+			if (err) return callback(err);
+
+			if (!status || !status.rev || !status.raw || !status.raw.remoteUri) {
+				return callback(null, status);
+			}
+
+			// See if we have changes in our local repo that are not in cache.
+			// If we find any our cache is not up to date and we should thus be ahead.
+			var cachePath = plugin.node.getCachePath("external", status.raw.remoteUri);
+
+            var git = GIT.interfaceForPath(API, cachePath, {
+		        verbose: options.debug
+		    });
+			return git.isRepository(function(err, isRepository) {
+				if (err) return callback(err);
+				if (!isRepository) return callback(null, status);
+				return git.callGit([
+                    "rev-list",
+                    "--no-walk",
+                    status.rev
+                ], {}, function(err, result) {
+                	if (err) {
+	                	// 'status.rev' not found as branch or ref in repo.
+						status.ahead = true;
+                	}
+            		return callback(null, status);
+                });
+			});
+		});
 	}
 
 	plugin.descriptorForSelector = function(locator, selector, options, callback) {
@@ -268,6 +305,20 @@ exports.for = function(API, plugin) {
 	        return loadDescriptorAt(plugin.node.path, selector, callback);
 		});
 	}
+
+    plugin.isRevDescendant = function(parentRev, childRev, options, callback) {
+		var git = GIT.interfaceForPath(API, plugin.node.path, {
+	        verbose: options.debug
+	    });
+		return git.callGit([
+	        "log",
+	        "--oneline",
+	        parentRev + ".." + childRev
+	    ], {}, function(err, result) {
+	    	if (err) return callback(null, false);
+	    	return callback(null, ((result.split("\n").length-1) > 0 ) ? true : false);
+	    });
+    }
 
 	plugin.hasRevInHistory = function(rev, options, callback) {
 		var git = GIT.interfaceForPath(API, plugin.node.path, {
@@ -707,7 +758,24 @@ exports.for = function(API, plugin) {
                 branch: status.branch,
                 remote: "origin"
             }).then(function() {
-                API.TERM.stdout.writenl("\0green(Pushed git branch '" + status.branch + "' of package '" + self.node.path + "' to remote '" + "origin" + "'.\0)");
+            	var deferred = API.Q.defer();
+				git.remotes(function(err, remotes) {
+					if (err) return deferred.reject(err);
+
+					if (!remotes["origin"]["push-url"]) return deferred.resolve();
+
+	            	// TODO: Instead of fetching from online, just push it to the cache repo.
+	            	var opts = API.UTIL.copy(options);
+	            	opts.time = Math.floor(Date.now()/1000);
+	            	opts.now = true;
+					return fetchIfApplicable(plugin.node.getCachePath("external", remotes["origin"]["push-url"]), opts, function(err) {
+						if (err) return deferred.reject(err);
+						return deferred.resolve();
+					});
+				});
+				return deferred.promise;
+            }).then(function() {
+                API.TERM.stdout.writenl("\0green(Pushed git branch '" + status.branch + "' of package '" + self.node.path + "' to remote '" + "origin" + "' and pulled cache.\0)");
             }).then(deferred.resolve, deferred.reject);
 	    });
 	    return deferred.promise;
