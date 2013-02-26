@@ -734,7 +734,9 @@ exports.for = function(API, plugin) {
 	    git.status({}, function(err, status) {	  
 	    	if (err) return deferred.reject(err);  	
 	        return git.commit("bump package version to v" + newVersion, {
-	            add: true
+	            add: [
+	            	"package.json"
+	            ]
 	        }).then(function() {
 		        var tag = "v" + newVersion;
 	            return git.tag(tag).then(function() {
