@@ -169,8 +169,6 @@ exports.for = function(API, plugin) {
     plugin.resolveLocator = function(locator, options, callback) {
         var self = this;
 
-        if (!locator.vcs) locator.vcs = "git";
-
         if (typeof locator.getLocation === "undefined") {
 	        // TODO: Parse `locator.descriptor.pointer` and set `locator.getLocation` function.    	
         }
@@ -190,6 +188,7 @@ exports.for = function(API, plugin) {
 				return git.isRepository(function(err, isRepository) {
 					if (err) return callback(err);
 					if (!isRepository) return callback(null);
+			        if (!locator.vcs) locator.vcs = "git";
 					return git.callGit([
 	                    "rev-parse",
 	                    locator.selector
