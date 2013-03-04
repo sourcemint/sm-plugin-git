@@ -214,10 +214,16 @@ exports.for = function(API, plugin) {
         }
 
         return checkPath(plugin.node.getCachePath("external", locator.getLocation("git-write") || locator.getLocation("git-read")), true, function(err) {
-        	if (err) return callback(err);
-
-			if (locator.rev || !plugin.node.exists) return callback(null, locator);
-
+        	if (err) {
+        		if (/is not a valid 'commit' object/.test(err.message)) {
+        			// Ignore error. Check `plugin.node.path` below.
+        		} else {
+	        		return callback(err);
+        		}
+        	}
+			if (locator.rev || !plugin.node.exists) {
+				return callback(null, locator);
+			}
 	        checkPath(plugin.node.path, false, function(err) {
 	        	if (err) return callback(err);
 	        	return callback(null, locator);
