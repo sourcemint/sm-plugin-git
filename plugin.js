@@ -357,7 +357,9 @@ exports.for = function(API, plugin) {
 	plugin.latest = function(options, callback) {
 		var self = this;
 
-		var uri = self.node.summary.declaredLocator.getLocation("git-write") || self.node.summary.declaredLocator.getLocation("git-read");
+		var locator = options.locator || self.node.summary.declaredLocator;
+
+		var uri = locator.getLocation("git-write") || locator.getLocation("git-read");
 
 		if (!uri) return callback(null, false);
 
@@ -428,8 +430,8 @@ exports.for = function(API, plugin) {
 				                        }
 
 				                        if (
-				                        	typeof self.node.summary.declaredLocator.rev !== "undefined" ||
-				                        	self.node.summary.declaredLocator.version !== "undefined"
+				                        	typeof locator.rev !== "undefined" ||
+				                        	locator.version !== "undefined"
 				                        ) {
 				                            // We have a ref or version in a local or fetched remote branch or a tag.
 				                            // We don't need to fetch even if options.now is set as our ref/version already exists locally.
@@ -438,11 +440,11 @@ exports.for = function(API, plugin) {
 				                            return;
 				                        }
 
-				                        if (typeof self.node.summary.declaredLocator.selector !== "undefined") {
+				                        if (typeof locator.selector !== "undefined") {
 				                            // Not found. `self.node.summary.declaredLocator.selector` is an unfetched ref or tag or a branch name.
 				                            // Check if `self.node.summary.declaredLocator.selector` is a fetched remote branch name (locally we only have the 'master' branch).
 				                            var deferred = API.Q.defer();
-				                            API.FS.exists(PATH.join(cachePath, ".git/refs/remotes/origin", self.node.summary.declaredLocator.selector), function(exists) {
+				                            API.FS.exists(PATH.join(cachePath, ".git/refs/remotes/origin", locator.selector), function(exists) {
 				                                if (exists) {
 				                                    // `fromLocator.version` is a fetched remote branch name. We fetch latest only if `options.now` is set.
 				                                    if (options.now) {
@@ -511,11 +513,11 @@ exports.for = function(API, plugin) {
 				                            // TODO: Write success file. If success file not present next time we access, re-clone.
 
 				                            // See if we can push. If not we set remote origin url to read.
-				                            if (self.node.summary.declaredLocator.getLocation("git-read")) {
+				                            if (locator.getLocation("git-read")) {
 				                                return git.canPush().then(function(canPush) {
 				                                    if (!canPush) {
 				                                        // We cannot push so we need to change the URI.
-				                                        return git.setRemote("origin", stripRevFromUri(self.node.summary.declaredLocator.getLocation("git-read")));
+				                                        return git.setRemote("origin", stripRevFromUri(locator.getLocation("git-read")));
 				                                    }
 				                                });
 				                            }
