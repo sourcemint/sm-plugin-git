@@ -532,7 +532,7 @@ exports.for = function(API, plugin) {
 				                                return git.canPush().then(function(canPush) {
 				                                    if (!canPush) {
 				                                        // We cannot push so we need to change the URI.
-				                                        return git.setRemote("origin", stripRevFromUri(locator.getLocation("git-read")));
+				                                        return git.setRemote("origin", locator.getLocation("git-read"));
 				                                    }
 				                                });
 				                            }
