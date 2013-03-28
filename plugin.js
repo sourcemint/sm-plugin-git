@@ -265,6 +265,21 @@ exports.for = function(API, plugin) {
 		});
 	}
 
+	plugin.diff = function(options, callback) {
+		var self = this;
+        var git = GIT.interfaceForPath(API, self.node.path, {
+	        verbose: options.debug
+	    });
+		return git.isRepository(function(err, isRepository) {
+			if (err) return callback(err);
+			if (!isRepository) return callback(null, false);
+			return git.changedFiles(function(err, files) {
+				if (err) return callback(err);
+				return callback(null, files);
+			});
+		});
+	}
+
 	plugin.descriptorForSelector = function(locator, selector, options, callback) {
 		function loadDescriptorAt(path, selector, callback) {
 			selector = selector || "master";
