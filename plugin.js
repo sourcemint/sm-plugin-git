@@ -178,6 +178,20 @@ exports.for = function(API, plugin) {
         // See if `locator.selector` is a 'version'.
 
         function checkPath(path, pull, callback) {
+
+        	var finalCallback = callback;
+        	// HACK: Detect broken git repositories.
+        	callback = function(err) {
+        		if (err) {
+        			if (/fatal: Not a valid object name HEAD/.test(err.message)) {
+        				console.error(err.stack);
+        				console.error("Git repository '" + path + "' seems broken! You probably need to delete it and try again.");
+        				process.exit(1);
+        			}
+        		}
+        		return finalCallback.apply(null, arguments);
+        	};
+
         	var opts = API.UTIL.copy(options);
         	if (pull) opts.pull = true;
 			return fetchIfApplicable(path, opts, function(err) {
